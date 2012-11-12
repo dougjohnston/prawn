@@ -33,7 +33,7 @@ END_DESC
 
   A lot has changed recently in Prawn.
 
-  Please read the changelog for details:
+  Please read the changelog for details
 
   https://github.com/sandal/prawn/wiki/CHANGELOG
 
