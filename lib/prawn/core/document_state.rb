@@ -6,6 +6,7 @@ module Prawn
 
         if options[:template]
           @store = Prawn::Core::ObjectStore.new(:template => options[:template])
+          @store.info.data.merge!(options[:info]) if options[:info]
         else
           @store = Prawn::Core::ObjectStore.new(:info => options[:info])
         end
@@ -41,7 +42,7 @@ module Prawn
       def normalize_metadata(options)
         options[:info] ||= {}
         options[:info][:Creator] ||= "Prawn"
-        options[:info][:Producer] = "Prawn"
+        options[:info][:Producer] ||= "Prawn"
 
         info = options[:info]
       end

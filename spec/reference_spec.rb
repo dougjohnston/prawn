@@ -35,7 +35,7 @@ describe "A Reference object" do
     cref << "Hi There " * 20
     cref.compress_stream
 
-    assert cref.stream.size < ref.stream.size, 
+    cref.stream.size.should be < ref.stream.size,
       "compressed stream expected to be smaller than source but wasn't"
     cref.data[:Filter].should == :FlateDecode
   end
@@ -67,6 +67,22 @@ describe "A Reference object" do
     to.compressed?.should == true
   end
 
+  it "should have Length if stream present" do
+    ref = Prawn::Core::Reference(7, {})
+    ref << "Hello"
+
+    ref.data[:Length].should == 5
+  end
+
+  it "should update Length when stream is updated" do
+    ref = Prawn::Core::Reference(7, {})
+    ref << "Hello"
+    ref.data[:Length].should == 5
+
+    ref << " world"
+    ref.data[:Length].should == 11
+  end
+
   describe "generated via Prawn::Document" do
     it "should return a proper reference on ref!" do
       pdf = Prawn::Document.new
@@ -77,6 +93,13 @@ describe "A Reference object" do
       pdf = Prawn::Document.new
       r = pdf.ref({})
       r.is_a?(Integer).should == true
+    end
+
+    it "should have :Length of stream if it has one when compression disabled" do
+      pdf = Prawn::Document.new :compress => false
+      ref = pdf.ref!({})
+      ref << 'Hello'
+      ref.data[:Length].should == 5
     end
   end
 end

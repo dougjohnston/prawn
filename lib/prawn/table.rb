@@ -161,6 +161,15 @@ module Prawn
     #
     attr_reader :cells
 
+    # Specify a callback to be called before each page of cells is rendered.
+    # The block is passed a Cells object containing all cells to be rendered on
+    # that page. You can change styling of the cells in this block, but keep in
+    # mind that the cells have already been positioned and sized.
+    # 
+    def before_rendering_page(&block)
+      @before_rendering_page = block
+    end
+
     # Returns the width of the table in PDF points.
     #
     def width
@@ -276,6 +285,13 @@ module Prawn
           end
         end
 
+        # Duplicate each cell of the header row into @header_row so it can be
+        # modified in before_rendering_page callbacks.
+        if @header
+          @header_row = Cells.new
+          row(0).each { |cell| @header_row[cell.row, cell.column] = cell.dup }
+        end
+
         # Track cells to be drawn on this page. They will all be drawn when this
         # page is finished.
         cells_this_page = []
@@ -284,13 +300,21 @@ module Prawn
           if cell.height > (cell.y + offset) - ref_bounds.absolute_bottom &&
              cell.row > started_new_page_at_row
             # Ink all cells on the current page
+            if @before_rendering_page
+              c = Cells.new(cells_this_page.map { |c, _| c })
+              @before_rendering_page.call(c)
+            end
             Cell.draw_cells(cells_this_page)
             cells_this_page = []
 
             # start a new page or column
             @pdf.bounds.move_past_bottom
-            draw_header unless cell.row == 0
-            offset = @pdf.y - cell.y
+            if cell.row > 0 && @header
+              header_height = add_header(cells_this_page, @pdf.cursor, cell.row-1)
+            else
+              header_height = 0
+            end
+            offset = @pdf.y - cell.y - header_height
             started_new_page_at_row = cell.row
           end
    
@@ -317,6 +341,10 @@ module Prawn
           last_y = y
         end
         # Draw the last page of cells
+        if @before_rendering_page
+          c = Cells.new(cells_this_page.map { |c, _| c })
+          @before_rendering_page.call(c)
+        end
         Cell.draw_cells(cells_this_page)
 
         @pdf.move_cursor_to(last_y - @cells.last.height)
@@ -453,6 +481,21 @@ module Prawn
       cells
     end
 
+    # Add the header row to the given array of cells at the given y-position.
+    # Number the row with the given +row+ index, so that the header appears (in
+    # any Cells built for this page) immediately prior to the first data row on
+    # this page.
+    #
+    # Return the height of the header.
+    #
+    def add_header(page_of_cells, y, row)
+      @header_row.each do |cell|
+        cell.row = row
+        page_of_cells << [cell, [cell.x, y]]
+      end
+      @header_row.height
+    end
+
     # Raises an error if the data provided cannot be converted into a valid
     # table.
     #
@@ -466,19 +509,6 @@ module Prawn
       unless data.all? { |e| Array === e }
         raise Prawn::Errors::InvalidTableData,
           "data must be a two dimensional array of cellable objects"
-      end
-    end
-
-    # If the table has a header, draw it at the current position.
-    #
-    def draw_header
-      if @header
-        y = @pdf.cursor
-        row(0).each do |cell|
-          cell.y = y
-          cell.draw
-        end
-        @pdf.move_cursor_to(y - row(0).height)
       end
     end
 
