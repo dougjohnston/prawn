@@ -217,6 +217,11 @@ module Prawn
           @skip_encoding     = options[:skip_encoding] || @document.skip_encoding
           @draw_text_callback = options[:draw_text_callback]
 
+          # if the text rendering mode is :unknown, force it back to :fill
+          if @mode == :unknown
+            @mode = :fill
+          end
+
           if @overflow == :expand
             # if set to expand, then we simply set the bottom
             # as the bottom of the document bounds, since that
@@ -387,8 +392,7 @@ module Prawn
           # all fonts
           fallback_fonts << fragment_font
 
-          hash[:text].unpack("U*").each do |char_int|
-            char = [char_int].pack("U")
+          hash[:text].unicode_characters do |char|
             @document.font(fragment_font)
             font_glyph_pairs << [find_font_for_this_glyph(char,
                                                           @document.font.family,

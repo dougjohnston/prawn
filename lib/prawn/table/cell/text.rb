@@ -1,4 +1,4 @@
-# encoding: utf-8   
+# encoding: utf-8
 
 # text.rb: Text table cells.
 #
@@ -47,7 +47,7 @@ module Prawn
         # from the final width if the text is long.
         #
         def natural_content_width
-          [styled_width_of(@content), @pdf.bounds.width].min
+          @natural_content_width ||= [styled_width_of(@content), @pdf.bounds.width].min
         end
 
         # Returns the natural height of this block of text, wrapped to the
@@ -64,7 +64,7 @@ module Prawn
         # Draws the text content into its bounding box.
         #
         def draw_content
-          with_font do 
+          with_font do
             @pdf.move_down((@pdf.font.line_gap + @pdf.font.descender)/2)
             with_text_color do
               text_box(:width => spanned_content_width + FPTolerance,
@@ -78,9 +78,11 @@ module Prawn
           # Sets a reasonable minimum width. If the cell has any content, make
           # sure we have enough width to be at least one character wide. This is
           # a bit of a hack, but it should work well enough.
-          min_content_width = [natural_content_width, styled_width_of("M")].min
-          @min_width ||= padding_left + padding_right + min_content_width
-          super
+          unless @min_width
+            min_content_width = [natural_content_width, styled_width_of_single_character].min
+            @min_width = padding_left + padding_right + min_content_width
+            super
+          end
         end
 
         protected
@@ -89,29 +91,37 @@ module Prawn
           @pdf.save_font do
             options = {}
             options[:style] = @text_options[:style] if @text_options[:style]
+            options[:style] ||= @pdf.font.options[:style] if @pdf.font.options[:style]
 
-            @pdf.font(@font || @pdf.font.name, options)
+            @pdf.font(@font || @pdf.font.family, options)
 
             yield
           end
         end
 
         def with_text_color
-          old_color = @pdf.fill_color || '000000'
-          @pdf.fill_color(@text_color) if @text_color
-          yield
-        ensure
-          @pdf.fill_color(old_color)
+          if @text_color
+            begin
+              old_color = @pdf.fill_color || '000000'
+              @pdf.fill_color(@text_color)
+              yield
+            ensure
+              @pdf.fill_color(old_color)
+            end
+          else
+            yield
+          end
         end
-        
+
         def text_box(extra_options={})
           if @text_options[:inline_format]
             options = @text_options.dup
             options.delete(:inline_format)
+            options.merge!(extra_options)
+            options[:document] = @pdf
 
             array = ::Prawn::Text::Formatted::Parser.to_array(@content)
-            ::Prawn::Text::Formatted::Box.new(array,
-              options.merge(extra_options).merge(:document => @pdf))
+            ::Prawn::Text::Formatted::Box.new(array, options)
           else
             ::Prawn::Text::Box.new(@content, @text_options.merge(extra_options).
                merge(:document => @pdf))
@@ -124,6 +134,19 @@ module Prawn
           @pdf.width_of(text, @text_options)
         end
 
+        private
+
+        # Returns the greatest possible width of any single character
+        #   under the given text options.
+        # (We use this to determine the minimum width of a table cell)
+        # (Although we currently determine this by measuring "M", it should really
+        #   use whichever character is widest under the current font)
+        #
+        def styled_width_of_single_character
+          key   = (@text_options[:style] == :bold) ? :bold_char_width : :plain_char_width
+          cache = Thread.current[key] ||= {}
+          cache[@pdf.font] ||= styled_width_of("M")
+        end
       end
     end
   end

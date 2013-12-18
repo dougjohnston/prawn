@@ -1,7 +1,7 @@
 # encoding: utf-8
 require "tempfile"
 
-require File.join(File.expand_path(File.dirname(__FILE__)), "spec_helper") 
+require File.join(File.expand_path(File.dirname(__FILE__)), "spec_helper")
 
 describe "Document encryption" do
 
@@ -31,9 +31,9 @@ describe "Document encryption" do
     end
 
   end
-  
+
   describe "Setting permissions" do
-    
+
     def doc_with_permissions(permissions)
       pdf = Prawn::Document.new
 
@@ -66,10 +66,10 @@ describe "Document encryption" do
         should == 0b1111_1111_1111_1111_1111_1111_1101_1111
     end
 
-    it "should raise ArgumentError if invalid option is provided" do
+    it "should raise_error ArgumentError if invalid option is provided" do
       lambda {
         doc_with_permissions(:modify_document => false)
-      }.should.raise(ArgumentError)
+      }.should raise_error(ArgumentError)
     end
 
   end
@@ -89,7 +89,7 @@ describe "Document encryption" do
     end
 
     it "should calculate the correct owner hash" do
-      @pdf.owner_password_hash.unpack("H*").first.should.match(/^61CA855012/i)
+      @pdf.owner_password_hash.unpack("H*").first.should match(/^61CA855012/i)
     end
 
     it "should calculate the correct user hash" do
@@ -120,7 +120,30 @@ describe "Document encryption" do
       Prawn::Core::EncryptedPdfObject(["foo", "bar"], "12345", 123, 0).should ==
         "[<4ad6e3> <4ed8fe>]"
     end
-    
+
+  end
+
+  describe "Reference#encrypted_object" do
+    it "should encrypt references properly" do
+      ref = Prawn::Core::Reference(1,["foo"])
+      ref.encrypted_object(nil).should == "1 0 obj\n[<4fca3f>]\nendobj\n"
+    end
+
+    it "should encrypt references with streams properly" do
+      ref = Prawn::Core::Reference(1, {})
+      ref << 'foo'
+      result = ruby_19 { "1 0 obj\n<< /Length 3\n>>\nstream\nO\xCA?\nendstream\nendobj\n".force_encoding('ASCII-8BIT') } || ruby_18 { "1 0 obj\n<< /Length 3\n>>\nstream\nO\xCA?\nendstream\nendobj\n" }
+      ref.encrypted_object(nil).should == result
+    end
+  end
+
+  describe "String#encrypted_object" do
+    it "should encrypt stream properly" do
+      stream = Prawn::Core::Stream.new
+      stream << "foo"
+      result = ruby_19 { "stream\nO\xCA?\nendstream\n".force_encoding('ASCII-8BIT') } || ruby_18 { "stream\nO\xCA?\nendstream\n" }
+      stream.encrypted_object(nil, 1, 0).should == result
+    end
   end
 
 end

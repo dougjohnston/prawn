@@ -7,7 +7,7 @@
 # This is free software. Please see the LICENSE and COPYING files for details.
 
 require 'digest/md5'
-require 'prawn/security/arcfour'
+require 'rc4'
 require 'prawn/core/byte_string'
 
 module Prawn
@@ -116,7 +116,7 @@ module Prawn
 
         # Compute the RC4 key from the extended key and perform the encryption
         rc4_key = Digest::MD5.digest(extended_key)[0, 10]
-        Arcfour.new(rc4_key).encrypt(str)
+        RC4.new(rc4_key).encrypt(str)
       end
 
       private
@@ -186,13 +186,13 @@ module Prawn
       def owner_password_hash
         @owner_password_hash ||= begin
           key = Digest::MD5.digest(pad_password(@owner_password))[0, 5]
-          Arcfour.new(key).encrypt(pad_password(@user_password))
+          RC4.new(key).encrypt(pad_password(@user_password))
         end
       end
 
       # The U (user) value in the encryption dictionary. Algorithm 3.4.
       def user_password_hash
-        Arcfour.new(user_encryption_key).encrypt(PasswordPadding)
+        RC4.new(user_encryption_key).encrypt(PasswordPadding)
       end
 
     end
@@ -246,19 +246,31 @@ module Prawn
       end
     end
 
+    class Stream
+      def encrypted_object(key, id, gen)
+        if filtered_stream
+          "stream\n#{Document::Security.encrypt_string filtered_stream, key, id, gen}\nendstream\n"
+        else
+          ''
+        end
+      end
+    end
+
     class Reference
 
       # Returns the object definition for the object this references, keyed from
       # +key+.
       def encrypted_object(key)
         @on_encode.call(self) if @on_encode
-        output = "#{@identifier} #{gen} obj\n" <<
-          Prawn::Core::EncryptedPdfObject(data, key, @identifier, gen) << "\n"
-        if @stream
-          output << "stream\n" <<
-            Document::Security.encrypt_string(@stream, key, @identifier, gen) <<
-            "\nendstream\n"
+
+        output = "#{@identifier} #{gen} obj\n"
+        unless @stream.empty?
+          output << Prawn::Core::EncryptedPdfObject(data.merge(@stream.data), key, @identifier, gen) << "\n" <<
+            @stream.encrypted_object(key, @identifier, gen)
+        else
+          output << Prawn::Core::EncryptedPdfObject(data, key, @identifier, gen) << "\n"
         end
+
         output << "endobj\n"
       end
 

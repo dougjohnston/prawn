@@ -14,7 +14,7 @@ module Prawn
 
       class Parser
 
-        def self.to_array(string)
+        PARSER_REGEX = begin
           regex_string = "\n|" +
                          "<b>|</b>|" +
                          "<i>|</i>|" +
@@ -30,7 +30,10 @@ module Prawn
                          "<a[^>]*>|</a>|" +
                          "[^<\n]+"
           regex = Regexp.new(regex_string, Regexp::MULTILINE)
-          tokens = string.gsub(/<br\s*\/?>/, "\n").scan(regex)
+        end
+
+        def self.to_array(string)
+          tokens = string.gsub(/<br\s*\/?>/, "\n").scan(PARSER_REGEX)
           self.array_from_tokens(tokens)
         end
 
@@ -122,6 +125,7 @@ module Prawn
           colors = []
           link = nil
           anchor = nil
+          local = nil
           fonts = []
           sizes = []
           character_spacings = []
@@ -155,6 +159,7 @@ module Prawn
             when "</link>", "</a>"
               link = nil
               anchor = nil
+              local = nil
             when "</color>"
               colors.pop
             when "</font>"
@@ -168,6 +173,9 @@ module Prawn
 
                 matches = /anchor="([^"]*)"/.match(token) || /anchor='([^']*)'/.match(token)
                 anchor = matches[1] unless matches.nil?
+                
+                matches = /local="([^"]*)"/.match(token) || /local='([^']*)'/.match(token)
+                local = matches[1] unless matches.nil?
               elsif token =~ /^<color[^>]*>$/
                 matches = /rgb="#?([^"]*)"/.match(token) || /rgb='#?([^']*)'/.match(token)
                 colors << matches[1] if matches
@@ -197,6 +205,7 @@ module Prawn
                 array << { :text => string,
                            :styles => styles.dup,
                            :color => colors.last,
+                           :local => local,
                            :link => link,
                            :anchor => anchor,
                            :font => fonts.last,

@@ -47,13 +47,20 @@ module Prawn
       #
       def rows(row_spec)
         index_cells unless @indexed
-        row_spec = transform_spec(row_spec, @row_count)
+        row_spec = transform_spec(row_spec, @first_row, @row_count)
         Cells.new(@rows[row_spec] ||= select { |c|
                     row_spec.respond_to?(:include?) ?
                       row_spec.include?(c.row) : row_spec === c.row })
       end
       alias_method :row, :rows
-      
+
+      # Returns the number of rows in the list.
+      #
+      def row_count
+        index_cells unless @indexed
+        @row_count
+      end
+
       # Limits selection to the given column or columns. +col_spec+ can be
       # anything that responds to the === operator selecting a set of 0-based
       # column numbers; most commonly a number or a range.
@@ -63,12 +70,19 @@ module Prawn
       #
       def columns(col_spec)
         index_cells unless @indexed
-        col_spec = transform_spec(col_spec, @column_count)
+        col_spec = transform_spec(col_spec, @first_column, @column_count)
         Cells.new(@columns[col_spec] ||= select { |c|
                     col_spec.respond_to?(:include?) ? 
                       col_spec.include?(c.column) : col_spec === c.column })
       end
       alias_method :column, :columns
+
+      # Returns the number of columns in the list.
+      #
+      def column_count
+        index_cells unless @indexed
+        @column_count
+      end
 
       # Allows you to filter the given cells by arbitrary properties.
       #
@@ -85,7 +99,14 @@ module Prawn
       #   table.cells[0, 0].content # => "First cell content"
       #
       def [](row, col)
-        find { |c| c.row == row && c.column == col }
+        return nil if empty?
+        index_cells unless @indexed
+        row_array, col_array = @rows[@first_row + row] || [], @columns[@first_column + col] || []
+        if row_array.length < col_array.length
+          row_array.find { |c| c.column == @first_column + col }
+        else
+          col_array.find { |c| c.row == @first_row + row }
+        end
       end
 
       # Puts a cell in the collection at the given position. Internal use only.
@@ -94,6 +115,15 @@ module Prawn
         cell.extend(Cell::InTable)
         cell.row = row
         cell.column = col
+
+        if @indexed
+          (@rows[row]    ||= []) << cell
+          (@columns[col] ||= []) << cell
+          @first_row    = row if !@first_row    || row < @first_row
+          @first_column = col if !@first_column || col < @first_column
+          @row_count    = @rows.size
+          @column_count = @columns.size
+        end
 
         self << cell
       end
@@ -143,7 +173,7 @@ module Prawn
       # Returns maximum width that can contain cells in the set.
       #
       def max_width
-        aggregate_cell_values(:column, :max_width_ignoring_span, :min)
+        aggregate_cell_values(:column, :max_width_ignoring_span, :max)
       end
 
       # Returns the total height of all rows in the selected set.
@@ -184,6 +214,9 @@ module Prawn
           @columns[cell.column] << cell
         end
 
+        @first_row    = @rows.keys.min
+        @first_column = @columns.keys.min
+
         @row_count    = @rows.size
         @column_count = @columns.size
 
@@ -196,25 +229,66 @@ module Prawn
       #
       def aggregate_cell_values(row_or_column, meth, aggregate)
         values = {}
+
+        #calculate values for all cells that do not span accross multiple cells
+        #this ensures that we don't have a problem if the first line includes
+        #a cell that spans across multiple cells
         each do |cell|
-          index = cell.send(row_or_column)
-          values[index] = [values[index], cell.send(meth)].compact.send(aggregate)
+          #don't take spanned cells
+          if cell.colspan == 1 and cell.class != Prawn::Table::Cell::SpanDummy
+            index = cell.send(row_or_column)
+            values[index] = [values[index], cell.send(meth)].compact.send(aggregate)
+          end
+        end
+
+        each do |cell|
+          index = cell.send(row_or_column)          
+          if cell.colspan > 1
+            #calculate current (old) return value before we do anything
+            old_sum = 0
+            cell.colspan.times { |i|
+              old_sum += values[index+i] unless values[index+i].nil?
+            }
+            
+            #calculate future return value 
+            new_sum = cell.send(meth) * cell.colspan
+
+            if new_sum >= old_sum
+              #not entirely sure why we need this line, but with it the tests pass
+              values[index] = [values[index], cell.send(meth)].compact.send(aggregate) 
+              #overwrite the old values with the new ones, but only if all entries existed
+              entries_exist = true
+              cell.colspan.times { |i| entries_exist = false if values[index+i].nil? }
+              cell.colspan.times { |i|
+                values[index+i] = cell.send(meth) if entries_exist
+              }
+            end
+          else
+            if cell.class == Prawn::Table::Cell::SpanDummy
+              values[index] = [values[index], cell.send(meth)].compact.send(aggregate) 
+            end
+          end
         end
         values.values.inject(0, &:+)
       end
 
       # Transforms +spec+, a column / row specification, into an object that
       # can be compared against a row or column number using ===. Normalizes
-      # negative indices to be positive, given a total size of +total+.
+      # negative indices to be positive, given a total size of +total+. The
+      # first row/column is indicated by +first+; this value is considered row
+      # or column 0.
       #
-      def transform_spec(spec, total)
+      def transform_spec(spec, first, total)
         case spec
         when Range
-          transform_spec(spec.begin, total)..transform_spec(spec.end, total)
+          transform_spec(spec.begin, first, total) ..
+            transform_spec(spec.end, first, total)
         when Integer
-          spec < 0 ? (total + spec) : spec
+          spec < 0 ? (first + total + spec) : first + spec
+        when Enumerable
+          spec.map { |x| first + x }
         else # pass through
-          spec
+          raise "Don't understand spec #{spec.inspect}"
         end
       end
     end
